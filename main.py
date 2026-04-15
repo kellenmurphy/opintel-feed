@@ -31,11 +31,23 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Directory containing feeds.json, include.json, exclude.json, manual_includes.json. (default: config/)",
     )
     p.add_argument(
+        "--format",
+        nargs="+",
+        choices=["html", "md", "txt"],
+        default=["html"],
+        metavar="FMT",
+        help="Output format(s): html, md, txt. Multiple values are allowed. (default: html)",
+    )
+    p.add_argument(
         "--output",
         type=Path,
         default=None,
         metavar="PATH",
-        help="Output HTML file path. (default: output/briefing_YYYY-MM-DD.html)",
+        help=(
+            "Output file path. With a single --format, used as-is. "
+            "With multiple formats, the extension is replaced per format. "
+            "(default: output/briefing_YYYY-MM-DD.<ext>)"
+        ),
     )
     p.add_argument(
         "--max-articles",
@@ -174,7 +186,13 @@ def main() -> None:
     from opintel.fetcher import fetch_all_feeds, fetch_manual_includes
     from opintel.models import TokenUsage
     from opintel.prefilter import filter_prior_window_overlaps, prefilter_articles
-    from opintel.renderer import render_briefing, unique_output_path
+    from opintel.renderer import (
+        output_path_for_format,
+        render_html,
+        render_markdown,
+        render_text,
+        unique_output_path,
+    )
     from opintel.summarizer import summarize_articles
     from opintel.validator import validate_candidates
 
@@ -290,15 +308,15 @@ def main() -> None:
         token_usages.append(sonnet_usage)
 
     # ------------------------------------------------------------------ 7. RENDER
-    if args.output:
-        output_path = args.output
-    else:
-        output_dir = Path("output")
-        output_path = output_dir / f"briefing_{now.strftime('%Y-%m-%d')}.html"
+    _renderers = {"html": render_html, "md": render_markdown, "txt": render_text}
+    base_date = now.strftime("%Y-%m-%d")
+    single_format = len(args.format) == 1
 
-    output_path = unique_output_path(output_path)
-    render_briefing(summarized, output_path, run_date=now, lookback_days=args.days)
-    print(f"\nOutput written to: {output_path}")
+    for fmt in args.format:
+        path = output_path_for_format(fmt, base_date, args.output, single_format)
+        path = unique_output_path(path)
+        _renderers[fmt](summarized, path, run_date=now, lookback_days=args.days)
+        print(f"\nOutput written to: {path}")
 
     # ------------------------------------------------------------------ 8. REPORT
     _print_token_report(token_usages)

@@ -7,8 +7,18 @@ from jinja2 import Environment, FileSystemLoader
 
 from .models import CATEGORIES, Article
 
+_EXT = {"html": ".html", "md": ".md", "txt": ".txt"}
 
-def render_briefing(
+
+def _group_by_category(articles: list[Article]) -> dict[str, list[Article]]:
+    grouped: dict[str, list[Article]] = {cat: [] for cat in CATEGORIES}
+    for article in articles:
+        cat = article.category if article.category in CATEGORIES else "Other News"
+        grouped[cat].append(article)
+    return grouped
+
+
+def render_html(
     articles: list[Article],
     output_path: Path,
     run_date: datetime,
@@ -24,21 +34,97 @@ def render_briefing(
     )
     template = env.get_template("briefing.html.j2")
 
-    articles_by_category: dict[str, list[Article]] = {cat: [] for cat in CATEGORIES}
-    for article in articles:
-        cat = article.category if article.category in CATEGORIES else "Other News"
-        articles_by_category[cat].append(article)
-
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
     html = template.render(
         run_date=run_date.strftime("%Y-%m-%d %H:%M UTC"),
         lookback_days=lookback_days,
         categories=CATEGORIES,
-        articles_by_category=articles_by_category,
+        articles_by_category=_group_by_category(articles),
     )
-
     output_path.write_text(html, encoding="utf-8")
+
+
+# Keep the old name as an alias so existing callers don't break.
+render_briefing = render_html
+
+
+def render_markdown(
+    articles: list[Article],
+    output_path: Path,
+    run_date: datetime,
+    lookback_days: int = 7,
+) -> None:
+    lines: list[str] = []
+    lines.append("# Operational Intelligence Briefing")
+    lines.append("")
+    lines.append(f"*Generated: {run_date.strftime('%Y-%m-%d %H:%M UTC')} \u2014 Articles from the past {lookback_days} days*")
+
+    for cat, cat_articles in _group_by_category(articles).items():
+        if not cat_articles:
+            continue
+        lines.append("")
+        lines.append(f"## {cat}")
+        for article in cat_articles:
+            lines.append("")
+            lines.append(f"**{article.title}**")
+            for url in article.all_urls:
+                lines.append(f"- {url}")
+            for bullet in article.summary_bullets:
+                lines.append(f"- {bullet}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def render_text(
+    articles: list[Article],
+    output_path: Path,
+    run_date: datetime,
+    lookback_days: int = 7,
+) -> None:
+    width = 72
+    lines: list[str] = []
+    lines.append("OPERATIONAL INTELLIGENCE BRIEFING")
+    lines.append(f"Generated: {run_date.strftime('%Y-%m-%d %H:%M UTC')} \u2014 Articles from the past {lookback_days} days")
+
+    for cat, cat_articles in _group_by_category(articles).items():
+        if not cat_articles:
+            continue
+        lines.append("")
+        lines.append("\u2500" * width)
+        lines.append(cat.upper())
+        lines.append("\u2500" * width)
+        for article in cat_articles:
+            lines.append("")
+            lines.append(article.title)
+            for url in article.all_urls:
+                lines.append(f"  {url}")
+            for bullet in article.summary_bullets:
+                lines.append(f"  \u2022 {bullet}")
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def output_path_for_format(
+    fmt: str,
+    base_date: str,
+    explicit_output: Path | None,
+    single_format: bool,
+) -> Path:
+    """Return the output path for a given format.
+
+    If *explicit_output* is set and only one format is requested, use it as-is.
+    If *explicit_output* is set and multiple formats are requested, replace its
+    suffix with the format's canonical extension.
+    Otherwise build a default path under output/.
+    """
+    ext = _EXT[fmt]
+    if explicit_output is not None:
+        if single_format:
+            return explicit_output
+        return explicit_output.with_suffix(ext)
+    return Path("output") / f"briefing_{base_date}{ext}"
 
 
 def unique_output_path(base: Path) -> Path:
