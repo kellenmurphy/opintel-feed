@@ -2,6 +2,8 @@
 
 A Python tool for generating weekly Operational Intelligence (OpIntel) cybersecurity briefing documents. Run it the night before a briefing to automatically fetch, screen, and summarize relevant cybersecurity news from RSS feeds into a single HTML document ready to copy-paste into Box Notes.
 
+**[See example output](output/example_briefing.md)**
+
 ---
 
 ## Table of Contents

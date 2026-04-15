@@ -5,6 +5,7 @@
 cache/
 output/*.html
 !output/example_briefing.html
+!output/example_briefing.md
 
 # Python
 __pycache__/
