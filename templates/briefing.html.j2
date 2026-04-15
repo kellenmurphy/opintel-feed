@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpIntel Briefing &mdash; {{ run_date }}</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 960px;
+      margin: 2em auto;
+      padding: 0 1em;
+      color: #222;
+    }
+    h1 { font-size: 1.5em; margin-bottom: 0.25em; }
+    .meta { color: #666; font-size: 0.9em; margin-bottom: 2em; }
+    h2 {
+      font-size: 1.15em;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 4px;
+      margin-top: 2em;
+    }
+    ul { margin: 0.5em 0; padding-left: 1.5em; }
+    li { margin-bottom: 4px; }
+    .no-articles { color: #666; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>Operational Intelligence Briefing</h1>
+  <p class="meta">Generated: {{ run_date }} &mdash; Articles from the past {{ lookback_days }} days</p>
+
+{% if articles_by_category %}
+{% for category in categories %}
+{% if articles_by_category[category] %}
+  <h2>{{ category }}</h2>
+  <ul>
+{% for article in articles_by_category[category] %}
+    <li><strong>{{ article.title }}</strong>
+      <ul>
+{% for url in article.all_urls %}
+        <li>{{ url }}</li>
+{% endfor %}
+{% for bullet in article.summary_bullets %}
+        <li>{{ bullet }}</li>
+{% endfor %}
+      </ul>
+    </li>
+{% if not loop.last %}<br>{% endif %}
+{% endfor %}
+  </ul>
+{% endif %}
+{% endfor %}
+{% else %}
+  <p class="no-articles">No articles met inclusion criteria for this period.</p>
+{% endif %}
+
+</body>
+</html>

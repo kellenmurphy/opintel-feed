@@ -1,0 +1,20 @@
+[
+  "https://feeds.feedburner.com/TheHackersNews",
+  "https://krebsonsecurity.com/feed/",
+  "https://www.bleepingcomputer.com/feed/",
+  {"url": "https://www.darkreading.com/rss.xml", "max": 5},
+  "https://feeds.feedburner.com/securityweek",
+  "https://www.schneier.com/feed/atom/",
+  "https://therecord.media/feed/",
+  "https://www.cyberscoop.com/feed",
+  "https://www.404media.co/rss",
+  "https://www.helpnetsecurity.com/feed",
+  "https://news.sophos.com/en-us/feed",
+  {"url": "https://blog.malwarebytes.com/feed/", "max": 0},
+  "https://www.proofpoint.com/us/rss.xml",
+  "https://www.nist.gov/news-events/cybersecurity/rss.xml",
+  "https://www.ncsc.gov.uk/api/1/services/v1/all-rss-feed.xml",
+  "https://grahamcluley.com/feed",
+  {"url": "https://isc.sans.edu/rssfeed_full.xml", "max": 0},
+  "https://feeds.feedburner.com/HaveIBeenPwnedLatestBreaches"
+]
