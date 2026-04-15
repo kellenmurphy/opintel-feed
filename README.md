@@ -215,12 +215,14 @@ Output is written to `output/briefing_YYYY-MM-DD.html`. If that file already exi
 
 ```
 --dry-run            Print articles and worst-case cost estimate; make no API calls
+--format FMT [...]   Output format(s): html, md, txt. Multiple values allowed. (default: html)
 --days N             Lookback window in days (default: 7)
 --max-articles N     Cap on candidates sent to AI validation (default: 50)
 --no-cache           Ignore cached validation and summary results; reprocess all articles
                      (new results are still written to cache)
 --config-dir PATH    Use a different config directory
---output PATH        Write output to a specific file path
+--output PATH        Output file path. With a single format, used as-is; with multiple
+                     formats, the extension is replaced per format.
 --cache-dir PATH     Use a different cache directory
 ```
 
