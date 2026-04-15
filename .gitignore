@@ -3,7 +3,8 @@
 
 # Runtime directories
 cache/
-output/
+output/*.html
+!output/example_briefing.html
 
 # Python
 __pycache__/
