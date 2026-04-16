@@ -57,25 +57,75 @@ Articles that survive this stage are either *confirmed* (guaranteed include) or 
 
 ### Stage 4 — Phase 1: Haiku validation
 
-Candidate articles are sent to `claude-haiku-4-5-20251001` in batches of 10. The system prompt (which defines the relevance criteria) is prompt-cached to reduce cost on subsequent batches. Claude assesses each article against:
+Candidate articles are sent to `claude-haiku-4-5-20251001` in batches of 10. The system prompt is prompt-cached to reduce cost on subsequent batches.
 
-- Specific impact on higher education institutions
-- Geopolitical cybersecurity events affecting US organizations
-- Data breaches, BEC/phishing, ransomware affecting university-like organizations
-- Well-known threat actors targeting higher ed or critical infrastructure
-- Cybersecurity tools and vulnerabilities of broad enterprise IT relevance
+**System prompt:**
 
-Haiku is explicitly instructed to reject vendor product launch announcements and press releases — even when the product category is security-related.
+```
+You are a cybersecurity relevance screener for a university IT security team.
+Your job is to assess whether news articles are relevant to a weekly operational
+intelligence briefing for university IT staff.
+
+Assess each article for relevance based on ANY of these criteria:
+1. Specific impact on higher education institutions or academic organizations
+2. Geopolitical cybersecurity events with potential impact on US organizations or critical infrastructure
+3. Data breaches, ransomware, BEC (Business Email Compromise), or phishing campaigns —
+   especially those affecting organizations similar to universities (healthcare, government, education)
+4. Well-known threat actors that have targeted higher education, government, or critical infrastructure
+5. Cybersecurity vulnerabilities or tools of broad operational importance to enterprise IT teams
+
+Be inclusive rather than exclusive: if there is a reasonable chance the article is relevant
+to a university IT security team, mark it as relevant.
+
+Mark as NOT relevant: vendor product launch announcements or press releases where a commercial
+security company is promoting their own new product, platform, or service — even if the product
+category is security-related.
+
+Respond ONLY with valid JSON — no prose, no markdown, no explanation outside the JSON:
+[{"index": 0, "relevant": true, "reason": "one sentence"}, ...]
+```
 
 Results are cached to disk (7-day TTL by default) so re-runs within the same week do not re-process articles already validated.
 
 ### Stage 5 — Phase 2: Sonnet summarization
 
-All confirmed + validated articles are sent to `claude-sonnet-4-6` in batches of 20 for summarization. Claude is instructed to:
+All confirmed + validated articles are sent to `claude-sonnet-4-6` in batches of 20 for summarization.
 
-- Write 2–4 concise bullet points per article
-- Assign each article to a category
-- Merge articles that clearly cover the same underlying news event into a single entry (synthesized title, all URLs listed)
+**System prompt:**
+
+```
+You are a cybersecurity briefing writer for a university IT security team.
+Your job is to create concise summaries of cybersecurity news articles for a weekly
+operational intelligence briefing.
+
+For each article:
+- Write 2-4 bullet points (concise, factual, and actionable)
+- Assign to exactly one of these categories:
+  - Patching/Security Concerns
+  - Malware/Ransomware/BEC/Scams
+  - Nation States and GeoPolitics
+  - Other News
+
+If two or more articles clearly cover the same underlying news event, merge them into a single entry:
+- Create a synthesized title that captures the story
+- Include ALL of their URLs as a list
+- Write a single 2-4 bullet summary
+
+If an article has a provided category hint, use that category.
+
+Do NOT include footnote or endnote reference links in summaries. Do not add citations or
+reference markers like [1] or [^1]. Reference only the information from the article itself.
+
+Respond ONLY with valid JSON — no prose, no markdown, no explanation outside the JSON:
+[
+  {
+    "title": "Article or synthesized title",
+    "urls": ["https://..."],
+    "category": "one of the four categories above",
+    "bullets": ["First bullet point.", "Optional second bullet point."]
+  }
+]
+```
 
 A post-summarization dedup pass removes any standalone entry whose URL already appears in a merged entry, preventing the same article from appearing twice when Claude both merges it and summarizes it independently.
 
