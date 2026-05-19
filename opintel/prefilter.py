@@ -166,7 +166,7 @@ def extract_cvss_scores(text: str) -> list[float]:
         try:
             scores.append(float(match.group(1)))
         except ValueError:
-            pass
+            continue
     for chunk in text.split():
         if _CVSS_VECTOR_RE.search(chunk):
             m = _CVSS_VECTOR_SCORE_RE.search(chunk)
@@ -174,7 +174,7 @@ def extract_cvss_scores(text: str) -> list[float]:
                 try:
                     scores.append(float(m.group(1)))
                 except ValueError:
-                    pass
+                    continue
     return scores
 
 

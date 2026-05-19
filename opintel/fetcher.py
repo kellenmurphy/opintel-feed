@@ -10,7 +10,7 @@ import feedparser
 import requests
 from dateutil import parser as dateutil_parser
 
-from .config import AppConfig, FeedConfig, ManualInclude
+from .config import AppConfig, ManualInclude
 from .models import Article
 
 UTM_PARAMS = {

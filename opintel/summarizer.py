@@ -184,6 +184,7 @@ def _call_sonnet(
                 delay *= 2
             else:
                 raise
+    raise RuntimeError(f"_call_sonnet exhausted {max_retries} retries without returning")
 
 
 def summarize_articles(

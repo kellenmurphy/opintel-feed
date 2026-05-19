@@ -134,6 +134,7 @@ def _call_haiku(
                 delay *= 2
             else:
                 raise
+    raise RuntimeError(f"_call_haiku exhausted {max_retries} retries without returning")
 
 
 def validate_candidates(
