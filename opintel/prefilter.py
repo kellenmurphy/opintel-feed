@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from .config import AppConfig
+from .config import AppConfig, PreviousInclude
 from .models import Article
 
 _STOPWORDS = frozenset([
@@ -61,6 +61,10 @@ _NON_NEWS_TITLE_RE = re.compile(
   | \bin\s+(?:seed|series\s+[A-Z])\s+funding\b
     # Vendor product launch / press release
   | \b(?:launches?|introduces?|unveils?)\s+(?:\w[\w-]*\s+){1,10}(?:platform|solution|suite|engine)\b
+    # Versioned product release announcements (e.g. "v2.3 released", "version 26.04 now available")
+  | \bv?\d+\.\d[\d.]*\s+(?:released?|now\s+available|generally\s+available|is\s+(?:here|out))\b
+    # Long-term support / multi-year maintenance announcements (product marketing, not security news)
+  | \b\d+[-\s]year\s+(?:security\s+)?(?:support|maintenance)\b
   """,
     re.IGNORECASE | re.VERBOSE,
 )
@@ -249,6 +253,100 @@ def filter_prior_window_overlaps(
 
     if excluded:
         print(f"  Prior-week overlap: excluded {excluded} article(s) likely covered in the previous briefing.")
+    return result
+
+
+def filter_previous_includes(
+    articles: list[Article],
+    previous_includes: list[PreviousInclude],
+) -> list[Article]:
+    if not previous_includes:
+        return articles
+
+    prev_urls = frozenset(pi.url for pi in previous_includes)
+    prev_title_words = [_title_words(pi.title) for pi in previous_includes if pi.title]
+
+    result: list[Article] = []
+    excluded = 0
+
+    for article in articles:
+        if article.url in prev_urls or any(u in prev_urls for u in article.duplicate_urls):
+            excluded += 1
+            continue
+        words = _title_words(article.title)
+        if any(_jaccard(words, pw) >= _CROSS_WINDOW_THRESHOLD for pw in prev_title_words):
+            excluded += 1
+            continue
+        result.append(article)
+
+    if excluded:
+        print(f"  Previous briefings: excluded {excluded} article(s) already covered.")
+    return result
+
+
+_FINAL_POOL_THRESHOLD = 0.3
+_FINAL_POOL_BODY_THRESHOLD = 0.12
+_FINAL_POOL_BODY_WORDS = 100
+
+
+def _body_words(text: str, n: int = _FINAL_POOL_BODY_WORDS) -> frozenset[str]:
+    words = re.sub(r"[^a-z0-9\s]", "", text.lower()).split()[:n]
+    return frozenset(w for w in words if w not in _STOPWORDS and len(w) > 2)
+
+
+def _distinctive_title_words(all_words: list[frozenset[str]]) -> frozenset[str]:
+    """Words appearing in ≤2 titles in the pool — likely distinctive named entities."""
+    freq: dict[str, int] = {}
+    for words in all_words:
+        for w in words:
+            freq[w] = freq.get(w, 0) + 1
+    return frozenset(w for w, count in freq.items() if count <= 2)
+
+
+def deduplicate_final_pool(articles: list[Article]) -> list[Article]:
+    """Tighter dedup pass on the post-Haiku pool before summarization.
+
+    Four merge signals, any one of which triggers a merge:
+    1. CVE ID overlap in body text
+    2. Title Jaccard >= 0.3 (tighter than pre-filter's 0.4)
+    3. Shared distinctive named entity — a word appearing in <=2 titles in the
+       pool (catches "DirtyDecrypt", "Grafana", etc. where titles vary widely)
+    4. Body text Jaccard on first 100 words >= 0.12
+    """
+    if not articles:
+        return articles
+
+    all_title_words = [_title_words(a.title) for a in articles]
+    distinctive = _distinctive_title_words(all_title_words)
+
+    seen: list[tuple[Article, frozenset[str], frozenset[str], frozenset[str]]] = []
+    result: list[Article] = []
+
+    for i, article in enumerate(articles):
+        title_w = all_title_words[i]
+        body_w = _body_words(article.raw_text)
+        cves = _cve_ids(article.raw_text)
+
+        merged = False
+        for primary, primary_title_w, primary_body_w, primary_cves in seen:
+            if (
+                (cves and primary_cves and bool(cves & primary_cves))
+                or _jaccard(title_w, primary_title_w) >= _FINAL_POOL_THRESHOLD
+                or bool(title_w & primary_title_w & distinctive)
+                or _jaccard(body_w, primary_body_w) >= _FINAL_POOL_BODY_THRESHOLD
+            ):
+                if article.url not in primary.duplicate_urls and article.url != primary.url:
+                    primary.duplicate_urls.append(article.url)
+                merged = True
+                break
+
+        if not merged:
+            seen.append((article, title_w, body_w, cves))
+            result.append(article)
+
+    deduped = len(articles) - len(result)
+    if deduped:
+        print(f"  Final pool dedup: merged {deduped} duplicate(s) into existing entries.")
     return result
 
 

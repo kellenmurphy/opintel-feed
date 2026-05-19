@@ -24,12 +24,17 @@ especially those affecting organizations similar to universities (healthcare, go
 4. Well-known threat actors that have targeted higher education, government, or critical infrastructure
 5. Cybersecurity vulnerabilities or tools of broad operational importance to enterprise IT teams
 
-Be inclusive rather than exclusive: if there is a reasonable chance the article is relevant \
-to a university IT security team, mark it as relevant.
+When in doubt, exclude. Prefer a shorter list of high-signal articles over a longer list with \
+marginal entries.
 
-Mark as NOT relevant: vendor product launch announcements or press releases where a commercial \
-security company is promoting their own new product, platform, or service — even if the product \
-category is security-related.
+Mark as NOT relevant:
+- Vendor product launch announcements or press releases promoting a commercial product or service, \
+even if security-related.
+- Articles about niche or highly specialized software products unlikely to be deployed in a US \
+university enterprise environment (e.g. industrial control systems, boutique European appliances, \
+IoT/embedded platforms).
+- Data breaches or incidents affecting only non-US organizations with no direct US impact and no \
+known threat actor relevance to US higher education or critical infrastructure.
 
 Respond ONLY with valid JSON — no prose, no markdown, no explanation outside the JSON:
 [{"index": 0, "relevant": true, "reason": "one sentence"}, ...]"""

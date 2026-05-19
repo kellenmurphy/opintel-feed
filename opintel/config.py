@@ -5,7 +5,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from .models import CATEGORIES
+from .models import CATEGORIES as _DEFAULT_CATEGORIES
 
 
 class ConfigError(Exception):
@@ -25,11 +25,20 @@ class ManualInclude:
 
 
 @dataclass
+class PreviousInclude:
+    url: str
+    title: str
+
+
+@dataclass
 class AppConfig:
     feeds: list[FeedConfig]
     include_terms: list[str]
     exclude_terms: list[str]
     manual_includes: list[ManualInclude]
+    categories: list[str] = field(default_factory=lambda: list(_DEFAULT_CATEGORIES))
+    previous_includes: list[PreviousInclude] = field(default_factory=list)
+    previous_includes_path: Path = field(default_factory=lambda: Path("config/previous_includes.json"))
     max_articles: int = 50
     cache_ttl_days: int = 7
     output_dir: Path = Path("output")
@@ -83,6 +92,17 @@ def load_config(config_dir: Path) -> AppConfig:
     if not isinstance(manual_raw, list):
         raise ConfigError("manual_includes.json must be a JSON array")
 
+    categories_path = config_dir / "categories.json"
+    if categories_path.exists():
+        categories_raw = _load_json(categories_path, "categories.json")
+        if not isinstance(categories_raw, list) or not all(isinstance(c, str) for c in categories_raw):
+            raise ConfigError("categories.json must be a JSON array of strings")
+        if len(categories_raw) < 1:
+            raise ConfigError("categories.json must contain at least one category")
+        categories = categories_raw
+    else:
+        categories = list(_DEFAULT_CATEGORIES)
+
     manual_includes: list[ManualInclude] = []
     for i, item in enumerate(manual_raw):
         if not isinstance(item, dict) or "url" not in item:
@@ -90,12 +110,25 @@ def load_config(config_dir: Path) -> AppConfig:
                 f"manual_includes.json entry {i} must be an object with a 'url' field"
             )
         category = item.get("category")
-        if category is not None and category not in CATEGORIES:
+        if category is not None and category not in categories:
             raise ConfigError(
                 f"manual_includes.json entry {i} has unknown category '{category}'. "
-                f"Valid values: {CATEGORIES}"
+                f"Valid values: {categories}"
             )
         manual_includes.append(ManualInclude(url=item["url"], category=category))
+
+    prev_path = config_dir / "previous_includes.json"
+    previous_includes: list[PreviousInclude] = []
+    if prev_path.exists():
+        prev_raw = _load_json(prev_path, "previous_includes.json")
+        if not isinstance(prev_raw, list):
+            raise ConfigError("previous_includes.json must be a JSON array")
+        for i, item in enumerate(prev_raw):
+            if not isinstance(item, dict) or "url" not in item:
+                raise ConfigError(
+                    f"previous_includes.json entry {i} must be an object with a 'url' field"
+                )
+            previous_includes.append(PreviousInclude(url=item["url"], title=item.get("title", "")))
 
     max_articles = int(os.environ.get("OPINTEL_MAX_ARTICLES", "50"))
     cache_ttl_days = int(os.environ.get("OPINTEL_CACHE_TTL_DAYS", "7"))
@@ -105,6 +138,9 @@ def load_config(config_dir: Path) -> AppConfig:
         include_terms=include_raw,
         exclude_terms=exclude_raw,
         manual_includes=manual_includes,
+        categories=categories,
+        previous_includes=previous_includes,
+        previous_includes_path=prev_path,
         max_articles=max_articles,
         cache_ttl_days=cache_ttl_days,
     )

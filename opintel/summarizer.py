@@ -8,22 +8,21 @@ import anthropic
 
 from .cache import CacheManager
 from .config import AppConfig
-from .models import CATEGORIES, Article, TokenUsage
+from .models import Article, TokenUsage
 
 _SONNET_MODEL = "claude-sonnet-4-6"
 _BATCH_SIZE = 20
 
-_SYSTEM_PROMPT = f"""You are a cybersecurity briefing writer for a university IT security team. \
+def _build_system_prompt(categories: list[str]) -> str:
+    category_list = "\n".join(f"  - {c}" for c in categories)
+    return f"""You are a cybersecurity briefing writer for a university IT security team. \
 Your job is to create concise summaries of cybersecurity news articles for a weekly operational \
 intelligence briefing.
 
 For each article:
 - Write 2-4 bullet points (concise, factual, and actionable)
 - Assign to exactly one of these categories:
-  - Patching/Security Concerns
-  - Malware/Ransomware/BEC/Scams
-  - Nation States and GeoPolitics
-  - Other News
+{category_list}
 
 If two or more articles clearly cover the same underlying news event, merge them into a single entry:
 - Create a synthesized title that captures the story
@@ -40,7 +39,7 @@ Respond ONLY with valid JSON — no prose, no markdown, no explanation outside t
   {{
     "title": "Article or synthesized title",
     "urls": ["https://..."],
-    "category": "one of the four categories above",
+    "category": "one of the categories above",
     "bullets": ["First bullet point.", "Optional additional bullet point."]
   }}
 ]"""
@@ -66,7 +65,7 @@ def _dedup_summarized(results: list[Article]) -> list[Article]:
     return [r for r in results if r.duplicate_urls or r.url not in covered]
 
 
-def _parse_response(response_text: str, batch: list[Article]) -> list[Article]:
+def _parse_response(response_text: str, batch: list[Article], categories: list[str]) -> list[Article]:
     try:
         text = response_text.strip()
         if text.startswith("```"):
@@ -114,8 +113,8 @@ def _parse_response(response_text: str, batch: list[Article]) -> list[Article]:
             result.url = primary_url
             result.duplicate_urls = duplicate_urls
 
-            raw_category = item.get("category", "Other News")
-            result.category = raw_category if raw_category in CATEGORIES else "Other News"
+            raw_category = item.get("category", categories[-1])
+            result.category = raw_category if raw_category in categories else categories[-1]
 
             bullets = item.get("bullets", [])
             result.summary_bullets = [str(b) for b in bullets if b]
@@ -135,7 +134,7 @@ def _parse_response(response_text: str, batch: list[Article]) -> list[Article]:
         for article in batch:
             a = deepcopy(article)
             a.summary_bullets = ["Summary unavailable — manual review required."]
-            a.category = article.manual_category or "Other News"
+            a.category = article.manual_category or categories[-1]
             fallbacks.append(a)
         return fallbacks
 
@@ -143,6 +142,7 @@ def _parse_response(response_text: str, batch: list[Article]) -> list[Article]:
 def _call_sonnet(
     client: anthropic.Anthropic,
     user_prompt: str,
+    system_prompt: str,
 ) -> tuple[str, TokenUsage]:
     max_retries = 3
     delay = 2.0
@@ -154,7 +154,7 @@ def _call_sonnet(
                 system=[
                     {
                         "type": "text",
-                        "text": _SYSTEM_PROMPT,
+                        "text": system_prompt,
                         "cache_control": {"type": "ephemeral"},
                     }
                 ],
@@ -209,7 +209,7 @@ def summarize_articles(
             cache_hits += 1
             a = deepcopy(article)
             a.title = cached.get("title", article.title)
-            a.category = cached.get("category", "Other News")
+            a.category = cached.get("category", config.categories[-1])
             a.summary_bullets = cached.get("bullets", ["Summary unavailable — manual review required."])
             extra_urls = cached.get("urls", [article.url])
             a.duplicate_urls = [u for u in extra_urls if u != a.url]
@@ -227,19 +227,20 @@ def summarize_articles(
         print(f"  [DRY RUN] Would summarize {len(uncached)} articles with {_SONNET_MODEL}")
         for article in uncached:
             article.summary_bullets = ["[Dry run — summary not generated]"]
-            article.category = article.manual_category or "Other News"
+            article.category = article.manual_category or config.categories[-1]
         return cached_results + uncached, total_usage
 
+    system_prompt = _build_system_prompt(config.categories)
     summarized: list[Article] = []
     batches = [uncached[i : i + _BATCH_SIZE] for i in range(0, len(uncached), _BATCH_SIZE)]
 
     for batch_num, batch in enumerate(batches, 1):
         print(f"  Summarizing batch {batch_num}/{len(batches)} ({len(batch)} articles)...")
         user_prompt = _build_user_prompt(batch)
-        response_text, usage = _call_sonnet(client, user_prompt)
+        response_text, usage = _call_sonnet(client, user_prompt, system_prompt)
         total_usage.add(usage)
 
-        results = _parse_response(response_text, batch)
+        results = _parse_response(response_text, batch, config.categories)
 
         for result in results:
             cache.set_summary(

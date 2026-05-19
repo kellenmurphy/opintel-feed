@@ -5,15 +5,15 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from .models import CATEGORIES, Article
+from .models import Article
 
 _EXT = {"html": ".html", "md": ".md", "txt": ".txt"}
 
 
-def _group_by_category(articles: list[Article]) -> dict[str, list[Article]]:
-    grouped: dict[str, list[Article]] = {cat: [] for cat in CATEGORIES}
+def _group_by_category(articles: list[Article], categories: list[str]) -> dict[str, list[Article]]:
+    grouped: dict[str, list[Article]] = {cat: [] for cat in categories}
     for article in articles:
-        cat = article.category if article.category in CATEGORIES else "Other News"
+        cat = article.category if article.category in categories else categories[-1]
         grouped[cat].append(article)
     return grouped
 
@@ -23,8 +23,12 @@ def render_html(
     output_path: Path,
     run_date: datetime,
     lookback_days: int = 7,
+    categories: list[str] | None = None,
     templates_dir: Path | None = None,
 ) -> None:
+    from .models import CATEGORIES
+    if categories is None:
+        categories = list(CATEGORIES)
     if templates_dir is None:
         templates_dir = Path(__file__).parent.parent / "templates"
 
@@ -38,8 +42,8 @@ def render_html(
     html = template.render(
         run_date=run_date.strftime("%Y-%m-%d %H:%M UTC"),
         lookback_days=lookback_days,
-        categories=CATEGORIES,
-        articles_by_category=_group_by_category(articles),
+        categories=categories,
+        articles_by_category=_group_by_category(articles, categories),
     )
     output_path.write_text(html, encoding="utf-8")
 
@@ -53,13 +57,17 @@ def render_markdown(
     output_path: Path,
     run_date: datetime,
     lookback_days: int = 7,
+    categories: list[str] | None = None,
 ) -> None:
+    from .models import CATEGORIES
+    if categories is None:
+        categories = list(CATEGORIES)
     lines: list[str] = []
     lines.append("# Operational Intelligence Briefing")
     lines.append("")
     lines.append(f"*Generated: {run_date.strftime('%Y-%m-%d %H:%M UTC')} \u2014 Articles from the past {lookback_days} days*")
 
-    for cat, cat_articles in _group_by_category(articles).items():
+    for cat, cat_articles in _group_by_category(articles, categories).items():
         if not cat_articles:
             continue
         lines.append("")
@@ -81,13 +89,17 @@ def render_text(
     output_path: Path,
     run_date: datetime,
     lookback_days: int = 7,
+    categories: list[str] | None = None,
 ) -> None:
+    from .models import CATEGORIES
+    if categories is None:
+        categories = list(CATEGORIES)
     width = 72
     lines: list[str] = []
     lines.append("OPERATIONAL INTELLIGENCE BRIEFING")
     lines.append(f"Generated: {run_date.strftime('%Y-%m-%d %H:%M UTC')} \u2014 Articles from the past {lookback_days} days")
 
-    for cat, cat_articles in _group_by_category(articles).items():
+    for cat, cat_articles in _group_by_category(articles, categories).items():
         if not cat_articles:
             continue
         lines.append("")

@@ -4,8 +4,10 @@
 # Runtime directories
 cache/
 output/*.html
+output/*.md
 !output/example_briefing.html
 !output/example_briefing.md
+config/previous_includes.json
 
 # Python
 __pycache__/

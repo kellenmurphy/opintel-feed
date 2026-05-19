@@ -1,6 +1,6 @@
 # opintel-feed
 
-A Python tool for generating weekly Operational Intelligence (OpIntel) cybersecurity briefing documents. Run it the night before a briefing to automatically fetch, screen, and summarize relevant cybersecurity news from RSS feeds into a single HTML document ready to copy-paste into Box Notes.
+A Python tool for generating Operational Intelligence (OpIntel) cybersecurity briefing documents. Operational intelligence is current, actionable threat information — the kind a security team potentially needs to act on this week, as opposed to longer-horizon strategic analysis. This tool automatically fetches articles from configured RSS feeds, screens them for relevance using a two-phase Claude AI pipeline, and produces a categorized summary document in HTML, Markdown, or plain text.
 
 **[See example output](output/example_briefing.md)**
 
@@ -25,10 +25,13 @@ The tool runs a multi-stage pipeline each time it is invoked:
 ```
 Fetch (RSS + manual)
   → Prior-week overlap filter
+  → Previous briefings filter
   → Heuristic pre-filter (dedup, sponsored, recaps, off-topic, keywords)
   → Phase 1: Claude Haiku — AI relevance validation
+  → Final pool dedup
+  → Preview gate (interactive)
   → Phase 2: Claude Sonnet — Summarization + categorization
-  → HTML render
+  → Render
 ```
 
 ### Stage 1 — Fetch
@@ -37,9 +40,17 @@ All configured RSS feeds are fetched using a browser-like User-Agent to avoid bo
 
 ### Stage 2 — Prior-week overlap filter
 
-The tool fetches a double-width window (e.g., 14 days if `--days 7`) and splits it into a *current* window and a *prior* window. Any article in the current window whose title is substantially similar ([Jaccard similarity](https://en.wikipedia.org/wiki/Jaccard_index) ≥ 0.5 on normalized word sets) to an article from the prior window is dropped — it was likely already covered in the previous briefing.
+The tool fetches an extended window — by default, twice the lookback period (e.g., 14 days if `--days 7`) — and splits it into a *current* window and a *prior* window. Any article in the current window whose title is substantially similar ([Jaccard similarity](https://en.wikipedia.org/wiki/Jaccard_index) ≥ 0.5 on normalized word sets) to an article from the prior window is dropped — it was likely already covered in the previous briefing.
 
-### Stage 3 — Heuristic pre-filter
+The prior window size is configurable with `--prior-days N`. Set `--prior-days 0` to disable overlap detection entirely (relying solely on `previous_includes.json` instead).
+
+### Stage 3 — Previous briefings filter
+
+Articles whose URL exactly matches, or whose title is substantially similar (Jaccard ≥ 0.5) to, any entry in `config/previous_includes.json` are dropped. This prevents re-covering stories that were included in prior briefings by any meeting leader.
+
+At the end of each successful run, the URLs and titles of all summarized articles are automatically appended to `previous_includes.json`, keeping the exclusion list current without manual upkeep. The file is created on first run if it does not exist.
+
+### Stage 4 — Heuristic pre-filter
 
 A series of zero-cost checks run before any API calls are made. In order:
 
@@ -48,14 +59,14 @@ A series of zero-cost checks run before any API calls are made. In order:
 3. Per-article checks (non-manual articles only):
    - **Sponsored content** — Dropped if the URL or text signals sponsorship (`/sponsored/`, "brought to you by", "partner content", etc.).
    - **Recaps and digests** — Dropped if the title signals it is a roundup rather than a news item ("Week in Review", "Monthly Digest", "Top 10 Stories", etc.).
-   - **Non-news content** — Dropped if the article is a podcast, video, webinar, speaking engagement announcement, Windows KB release note, CISO interview column, startup funding announcement, or vendor product launch (e.g. "Vendor Launches XYZ Platform").
+   - **Non-news content** — Dropped if the article is a podcast, video, webinar, speaking engagement announcement, Windows KB release note, CISO interview column, startup funding announcement, vendor product launch, versioned product release announcement (e.g. "v2.3 now available"), or long-term support announcement (e.g. "15-year security support").
    - **CVSS ≥ 9.0** — Immediately confirmed regardless of other rules. Both CVSSv2 and CVSSv3 scores are detected.
    - **Keyword match** — Confirmed if the article mentions a term from `include.json` and does not also match a term from `exclude.json`.
    - **Off-topic guard** — Articles that pass none of the above and contain no recognizable infosec vocabulary are discarded before being sent to the AI. This is the primary cost-control gate.
 
 Articles that survive this stage are either *confirmed* (guaranteed include) or *candidates* (need AI validation).
 
-### Stage 4 — Phase 1: Haiku validation
+### Stage 5 — Phase 1: Haiku validation
 
 Candidate articles are sent to `claude-haiku-4-5-20251001` in batches of 10. The system prompt is prompt-cached to reduce cost on subsequent batches.
 
@@ -74,12 +85,17 @@ Assess each article for relevance based on ANY of these criteria:
 4. Well-known threat actors that have targeted higher education, government, or critical infrastructure
 5. Cybersecurity vulnerabilities or tools of broad operational importance to enterprise IT teams
 
-Be inclusive rather than exclusive: if there is a reasonable chance the article is relevant
-to a university IT security team, mark it as relevant.
+When in doubt, exclude. Prefer a shorter list of high-signal articles over a longer
+list with marginal entries.
 
-Mark as NOT relevant: vendor product launch announcements or press releases where a commercial
-security company is promoting their own new product, platform, or service — even if the product
-category is security-related.
+Mark as NOT relevant:
+- Vendor product launch announcements or press releases promoting a commercial product or
+  service, even if security-related.
+- Articles about niche or highly specialized software products unlikely to be deployed in a
+  US university enterprise environment (e.g. industrial control systems, boutique European
+  appliances, IoT/embedded platforms).
+- Data breaches or incidents affecting only non-US organizations with no direct US impact
+  and no known threat actor relevance to US higher education or critical infrastructure.
 
 Respond ONLY with valid JSON — no prose, no markdown, no explanation outside the JSON:
 [{"index": 0, "relevant": true, "reason": "one sentence"}, ...]
@@ -87,7 +103,34 @@ Respond ONLY with valid JSON — no prose, no markdown, no explanation outside t
 
 Results are cached to disk (7-day TTL by default) so re-runs within the same week do not re-process articles already validated.
 
-### Stage 5 — Phase 2: Sonnet summarization
+### Stage 6 — Final pool dedup
+
+After Haiku validation, a second, tighter dedup pass runs on the smaller post-validation pool (~20–30 articles). Four signals trigger a merge — any one is sufficient:
+
+| Signal | Description |
+|---|---|
+| CVE overlap | Both articles mention the same CVE ID in their body text |
+| Title Jaccard ≥ 0.3 | High title vocabulary overlap (tighter than the 0.4 pre-filter threshold) |
+| Distinctive entity | Both titles share a word that appears in ≤ 2 titles in the current pool — catches named subjects like "DirtyDecrypt" or "Grafana" even when the surrounding title vocabulary differs completely |
+| Body Jaccard ≥ 0.12 | The first 100 words of each article share enough vocabulary to indicate same-story coverage |
+
+This stage catches same-story duplicates that survive the earlier dedup because different outlets frame the same event with different vocabulary.
+
+### Stage 7 — Preview gate
+
+Before any Sonnet API calls are made, the tool prints the full post-validation article list and prompts:
+
+```
+Proceed with summarization? [Y/n/filename]:
+```
+
+- **Y** or Enter — proceed
+- **n** — exit cleanly without summarizing
+- **a file path** — write the article list to that file, then proceed
+
+Use `--skip-preview` to bypass the prompt (e.g. in scripted or unattended runs). Use `--preview-file PATH` to write the list to a file without an interactive prompt.
+
+### Stage 8 — Phase 2: Sonnet summarization
 
 All confirmed + validated articles are sent to `claude-sonnet-4-6` in batches of 20 for summarization.
 
@@ -131,7 +174,7 @@ A post-summarization dedup pass removes any standalone entry whose URL already a
 
 Summaries are also cached, so re-runs do not re-summarize already-processed articles.
 
-### Stage 6 — Render
+### Stage 9 — Render
 
 The final article set is grouped by category and written to an HTML file. URLs are rendered as plaintext (not hyperlinks) for clean copy-paste into Box Notes. Articles within each category are separated by a line break.
 
@@ -153,11 +196,13 @@ The CVSS ≥ 9.0 rule **overrides** the exclude list — a critical vulnerabilit
 
 ### AI-validated inclusions
 
-Articles that don't meet the above criteria but pass the off-topic guard are evaluated by Claude Haiku against the criteria in [Stage 4](#stage-4--phase-1-haiku-validation) above.
+Articles that don't meet the above criteria but pass the off-topic guard are evaluated by Claude Haiku against the criteria in [Stage 5](#stage-5--phase-1-haiku-validation) above.
 
 ### Output categories
 
-Articles are assigned to one of four categories by Claude Sonnet:
+Categories are defined in `config/categories.json` and can be freely customized. Claude Sonnet assigns each article to one of the configured categories; the last category in the list acts as the catch-all for anything that doesn't fit elsewhere.
+
+The default categories are:
 
 | Category | Intended content |
 |---|---|
@@ -264,16 +309,22 @@ Output is written to `output/briefing_YYYY-MM-DD.html`. If that file already exi
 ### Common options
 
 ```
---dry-run            Print articles and worst-case cost estimate; make no API calls
---format FMT [...]   Output format(s): html, md, txt. Multiple values allowed. (default: html)
---days N             Lookback window in days (default: 7)
---max-articles N     Cap on candidates sent to AI validation (default: 50)
---no-cache           Ignore cached validation and summary results; reprocess all articles
-                     (new results are still written to cache)
---config-dir PATH    Use a different config directory
---output PATH        Output file path. With a single format, used as-is; with multiple
-                     formats, the extension is replaced per format.
---cache-dir PATH     Use a different cache directory
+--dry-run                Print articles and worst-case cost estimate; make no API calls
+--format FMT [...]       Output format(s): html, md, txt. Multiple values allowed. (default: html)
+--days N                 Lookback window in days (default: 7)
+--prior-days N           Days to fetch for prior-week overlap detection. Defaults to --days,
+                         giving a 2x fetch window. Set to 0 to disable. (default: same as --days)
+--skip-preview           Skip the post-validation article preview and proceed directly to
+                         Sonnet summarization without prompting
+--preview-file PATH      Write the post-validation article list to PATH before summarizing,
+                         then continue automatically (no interactive prompt)
+--max-articles N         Cap on candidates sent to AI validation (default: 50)
+--no-cache               Ignore cached validation and summary results; reprocess all articles
+                         (new results are still written to cache)
+--config-dir PATH        Use a different config directory
+--output PATH            Output file path. With a single format, used as-is; with multiple
+                         formats, the extension is replaced per format.
+--cache-dir PATH         Use a different cache directory
 ```
 
 ### Manually including a specific article
@@ -311,6 +362,8 @@ Edit `config/feeds.json`. Each entry is either a plain URL string or an object:
 | `config/include.json` | Array of strings | Keywords/products that trigger automatic inclusion |
 | `config/exclude.json` | Array of strings | Keywords that suppress inclusion (except CVSS ≥ 9.0) |
 | `config/manual_includes.json` | Array of `{"url", "category?"}` objects | Force-included articles |
+| `config/categories.json` | Array of strings | Output section headings, in display order. The last entry acts as the catch-all for unrecognized categories. Optional — defaults to the four built-in categories if absent. |
+| `config/previous_includes.json` | Array of `{"url", "title"}` objects | Articles from prior briefings to exclude from future runs. Auto-updated after each run. Created on first run. |
 | `.env` | Key=value | `ANTHROPIC_API_KEY` and optional overrides |
 
 ### Environment variable overrides

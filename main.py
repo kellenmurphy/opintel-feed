@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 import sys
@@ -75,6 +76,35 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="N",
         help="Lookback window in days for article freshness. (default: 7)",
     )
+    p.add_argument(
+        "--prior-days",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "How many days back to fetch for prior-week overlap detection. "
+            "Defaults to the same value as --days, giving a 2x fetch window. "
+            "Set to 0 to disable overlap detection entirely. (default: same as --days)"
+        ),
+    )
+    p.add_argument(
+        "--skip-preview",
+        action="store_true",
+        help=(
+            "Skip the post-validation article preview and proceed directly to Sonnet "
+            "summarization without prompting."
+        ),
+    )
+    p.add_argument(
+        "--preview-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "Write the post-validation article list to PATH before starting Sonnet "
+            "summarization, then continue automatically. Use --skip-preview to suppress the interactive prompt while still writing the file."
+        ),
+    )
     return p
 
 
@@ -131,6 +161,70 @@ def _estimate_dry_run_cost(n_validate: int, n_summarize: int) -> None:
     print(f"{'─' * 58}")
 
 
+def _append_to_previous_includes(path: Path, articles: list) -> None:
+    existing: list[dict] = []
+    if path.exists():
+        try:
+            existing = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            existing = []
+    existing_urls = {e["url"] for e in existing if "url" in e}
+    added = 0
+    for article in articles:
+        if article.url not in existing_urls:
+            existing.append({"url": article.url, "title": article.title})
+            existing_urls.add(article.url)
+            added += 1
+    path.write_text(json.dumps(existing, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    if added:
+        print(f"  Updated {path}: added {added} new article(s) to previous includes.")
+
+
+def _format_preview(articles: list) -> str:
+    lines = [f"Post-validation article list ({len(articles)} articles)\n"]
+    for i, a in enumerate(articles, 1):
+        reason = a.include_reason or "candidate"
+        lines.append(f"{i:>3}. [{reason}] {a.title}")
+        lines.append(f"       {a.url}")
+    return "\n".join(lines)
+
+
+def _run_preview_gate(articles: list, preview_file, interactive: bool) -> None:
+    """Print/save the post-validation article list and optionally prompt to continue."""
+    text = _format_preview(articles)
+
+    if preview_file:
+        preview_file = Path(preview_file)
+        preview_file.write_text(text, encoding="utf-8")
+        print(f"  Preview written to: {preview_file}")
+
+    if not interactive:
+        return
+
+    print(f"\n{text}\n")
+
+    while True:
+        try:
+            answer = input("Proceed with summarization? [Y/n/filename]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            sys.exit(0)
+
+        if answer == "" or answer.lower() == "y":
+            return
+        if answer.lower() == "n":
+            print("Aborted.")
+            sys.exit(0)
+        # treat any other input as a file path
+        try:
+            out = Path(answer)
+            out.write_text(text, encoding="utf-8")
+            print(f"  Preview written to: {out}")
+            return
+        except OSError as exc:
+            print(f"  Could not write '{answer}': {exc}. Enter Y, n, or a valid path.")
+
+
 def _print_token_report(usages: list) -> None:
     if not usages:
         return
@@ -185,7 +279,7 @@ def main() -> None:
     from opintel.config import ConfigError, load_config
     from opintel.fetcher import fetch_all_feeds, fetch_manual_includes
     from opintel.models import TokenUsage
-    from opintel.prefilter import filter_prior_window_overlaps, prefilter_articles
+    from opintel.prefilter import deduplicate_final_pool, filter_previous_includes, filter_prior_window_overlaps, prefilter_articles
     from opintel.renderer import (
         output_path_for_format,
         render_html,
@@ -212,11 +306,13 @@ def main() -> None:
     config.cache_dir = args.cache_dir
     config.lookback_days = args.days
 
+    prev_count = len(config.previous_includes)
+    prev_note = f", {prev_count} previous includes" if prev_count else ""
     print(
         f"\nLoaded {len(config.feeds)} feeds, "
         f"{len(config.include_terms)} include keywords, "
         f"{len(config.exclude_terms)} exclude keywords, "
-        f"{len(config.manual_includes)} manual includes."
+        f"{len(config.manual_includes)} manual includes{prev_note}."
     )
 
     cache = CacheManager(args.cache_dir, ttl_days=config.cache_ttl_days)
@@ -238,17 +334,25 @@ def main() -> None:
     # ------------------------------------------------------------------ 2. FETCH
     now = datetime.now(tz=timezone.utc)
     cutoff = now - timedelta(days=args.days)
-    prior_cutoff = cutoff - timedelta(days=args.days)
-    print(f"\nFetching articles published after {prior_cutoff.strftime('%Y-%m-%d %H:%M UTC')} (2x window for overlap detection)...")
+    prior_days = args.prior_days if args.prior_days is not None else args.days
+    prior_cutoff = cutoff - timedelta(days=prior_days)
 
-    all_fetched = fetch_all_feeds(config, prior_cutoff)
+    if prior_days > 0:
+        print(f"\nFetching articles published after {prior_cutoff.strftime('%Y-%m-%d %H:%M UTC')} ({args.days}d current + {prior_days}d prior overlap window)...")
+    else:
+        print(f"\nFetching articles published after {cutoff.strftime('%Y-%m-%d %H:%M UTC')} (overlap detection disabled)...")
+
+    all_fetched = fetch_all_feeds(config, prior_cutoff if prior_days > 0 else cutoff)
 
     current_articles = [a for a in all_fetched if a.published >= cutoff]
-    prior_articles = [a for a in all_fetched if a.published < cutoff]
-    print(
-        f"  Current window: {len(current_articles)} articles, "
-        f"prior window: {len(prior_articles)} articles."
-    )
+    prior_articles = [a for a in all_fetched if a.published < cutoff] if prior_days > 0 else []
+    if prior_days > 0:
+        print(
+            f"  Current window: {len(current_articles)} articles, "
+            f"prior window: {len(prior_articles)} articles."
+        )
+    else:
+        print(f"  Current window: {len(current_articles)} articles.")
 
     manual_articles = fetch_manual_includes(config.manual_includes, cutoff)
     if manual_articles:
@@ -259,6 +363,7 @@ def main() -> None:
     # ------------------------------------------------------------------ 3. PRE-FILTER
     print("\nRunning heuristic pre-filter...")
     all_articles = filter_prior_window_overlaps(all_articles, prior_articles)
+    all_articles = filter_previous_includes(all_articles, config.previous_includes)
     confirmed, candidates = prefilter_articles(all_articles, config)
     print(
         f"  Pre-filter: {len(confirmed)} confirmed "
@@ -280,6 +385,7 @@ def main() -> None:
 
     # ------------------------------------------------------------------ 5. MERGE
     final_articles = confirmed + validated_candidates
+    final_articles = deduplicate_final_pool(final_articles)
     print(f"\nFinal article pool: {len(final_articles)} articles for summarization.")
 
     if args.dry_run:
@@ -293,6 +399,13 @@ def main() -> None:
         )
         print("\nDry run complete. No API calls were made.")
         return
+
+    if not args.skip_preview or args.preview_file:
+        _run_preview_gate(
+            final_articles,
+            preview_file=args.preview_file,
+            interactive=not args.skip_preview,
+        )
 
     if not final_articles:
         print("\nNo articles met inclusion criteria. Writing empty briefing.")
@@ -315,10 +428,13 @@ def main() -> None:
     for fmt in args.format:
         path = output_path_for_format(fmt, base_date, args.output, single_format)
         path = unique_output_path(path)
-        _renderers[fmt](summarized, path, run_date=now, lookback_days=args.days)
+        _renderers[fmt](summarized, path, run_date=now, lookback_days=args.days, categories=config.categories)
         print(f"\nOutput written to: {path}")
 
-    # ------------------------------------------------------------------ 8. REPORT
+    # ------------------------------------------------------------------ 8. PREVIOUS INCLUDES
+    _append_to_previous_includes(config.previous_includes_path, summarized)
+
+    # ------------------------------------------------------------------ 9. REPORT
     _print_token_report(token_usages)
 
 
