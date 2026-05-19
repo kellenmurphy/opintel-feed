@@ -17,7 +17,7 @@
     },
     {
       "bom-ref": "requirements-L9",
-      "description": "requirements line 9: anthropic==0.96.0",
+      "description": "requirements line 9: anthropic==0.103.1",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -26,9 +26,9 @@
         }
       ],
       "name": "anthropic",
-      "purl": "pkg:pypi/anthropic@0.96.0",
+      "purl": "pkg:pypi/anthropic@0.103.1",
       "type": "library",
-      "version": "0.96.0"
+      "version": "0.103.1"
     },
     {
       "bom-ref": "requirements-L11",
@@ -47,7 +47,7 @@
     },
     {
       "bom-ref": "requirements-L15",
-      "description": "requirements line 15: certifi==2026.2.25",
+      "description": "requirements line 15: certifi==2026.4.22",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -56,9 +56,9 @@
         }
       ],
       "name": "certifi",
-      "purl": "pkg:pypi/certifi@2026.2.25",
+      "purl": "pkg:pypi/certifi@2026.4.22",
       "type": "library",
-      "version": "2026.2.25"
+      "version": "2026.4.22"
     },
     {
       "bom-ref": "requirements-L20",
@@ -182,7 +182,7 @@
     },
     {
       "bom-ref": "requirements-L36",
-      "description": "requirements line 36: idna==3.11",
+      "description": "requirements line 36: idna==3.15",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -191,9 +191,9 @@
         }
       ],
       "name": "idna",
-      "purl": "pkg:pypi/idna@3.11",
+      "purl": "pkg:pypi/idna@3.15",
       "type": "library",
-      "version": "3.11"
+      "version": "3.15"
     },
     {
       "bom-ref": "requirements-L41",
@@ -212,7 +212,7 @@
     },
     {
       "bom-ref": "requirements-L43",
-      "description": "requirements line 43: jiter==0.14.0",
+      "description": "requirements line 43: jiter==0.15.0",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -221,9 +221,9 @@
         }
       ],
       "name": "jiter",
-      "purl": "pkg:pypi/jiter@0.14.0",
+      "purl": "pkg:pypi/jiter@0.15.0",
       "type": "library",
-      "version": "0.14.0"
+      "version": "0.15.0"
     },
     {
       "bom-ref": "requirements-L45",
@@ -242,7 +242,7 @@
     },
     {
       "bom-ref": "requirements-L47",
-      "description": "requirements line 47: pydantic==2.13.1",
+      "description": "requirements line 47: pydantic==2.13.4",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -251,13 +251,13 @@
         }
       ],
       "name": "pydantic",
-      "purl": "pkg:pypi/pydantic@2.13.1",
+      "purl": "pkg:pypi/pydantic@2.13.4",
       "type": "library",
-      "version": "2.13.1"
+      "version": "2.13.4"
     },
     {
       "bom-ref": "requirements-L49",
-      "description": "requirements line 49: pydantic-core==2.46.1",
+      "description": "requirements line 49: pydantic-core==2.46.4",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -266,9 +266,9 @@
         }
       ],
       "name": "pydantic-core",
-      "purl": "pkg:pypi/pydantic-core@2.46.1",
+      "purl": "pkg:pypi/pydantic-core@2.46.4",
       "type": "library",
-      "version": "2.46.1"
+      "version": "2.46.4"
     },
     {
       "bom-ref": "requirements-L51",
@@ -302,7 +302,7 @@
     },
     {
       "bom-ref": "requirements-L55",
-      "description": "requirements line 55: requests==2.33.1",
+      "description": "requirements line 55: requests==2.34.2",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -311,9 +311,9 @@
         }
       ],
       "name": "requests",
-      "purl": "pkg:pypi/requests@2.33.1",
+      "purl": "pkg:pypi/requests@2.34.2",
       "type": "library",
-      "version": "2.33.1"
+      "version": "2.34.2"
     },
     {
       "bom-ref": "requirements-L57",
@@ -392,7 +392,7 @@
     },
     {
       "bom-ref": "requirements-L73",
-      "description": "requirements line 73: urllib3==2.6.3",
+      "description": "requirements line 73: urllib3==2.7.0",
       "externalReferences": [
         {
           "comment": "implicit dist url",
@@ -401,9 +401,9 @@
         }
       ],
       "name": "urllib3",
-      "purl": "pkg:pypi/urllib3@2.6.3",
+      "purl": "pkg:pypi/urllib3@2.7.0",
       "type": "library",
-      "version": "2.6.3"
+      "version": "2.7.0"
     }
   ],
   "dependencies": [
@@ -490,7 +490,7 @@
     }
   ],
   "metadata": {
-    "timestamp": "2026-04-16T15:54:27.890219+00:00",
+    "timestamp": "2026-05-19T20:52:32.366406+00:00",
     "tools": {
       "components": [
         {
@@ -594,7 +594,7 @@
       ]
     }
   },
-  "serialNumber": "urn:uuid:d37cbe7b-5c8f-4092-81fa-a57e3ad6daa0",
+  "serialNumber": "urn:uuid:2ae6513f-3bbb-4b1b-8acc-d9870b3e3dcd",
   "version": 1,
   "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
   "bomFormat": "CycloneDX",
