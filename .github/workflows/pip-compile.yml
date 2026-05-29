@@ -1,0 +1,33 @@
+name: Regenerate lockfile
+
+on:
+  push:
+    paths:
+      - 'requirements.in'
+
+permissions:
+  contents: write
+
+jobs:
+  pip-compile:
+    name: Regenerate requirements.txt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install pip-tools
+        run: pip install pip-tools
+
+      - name: Regenerate lockfile
+        run: pip-compile requirements.in --generate-hashes --strip-extras --output-file requirements.txt
+
+      - name: Commit if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add requirements.txt
+          git diff --cached --quiet || git commit -m "chore: regenerate requirements.txt lockfile" && git push
