@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -8,6 +8,34 @@ from jinja2 import Environment, FileSystemLoader
 from .models import Article
 
 _EXT = {"html": ".html", "md": ".md", "txt": ".txt"}
+
+
+def _ordinal(n: int) -> str:
+    """Return *n* with its English ordinal suffix, e.g. 3 -> '3rd', 21 -> '21st'."""
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
+def _format_dateline(run_date: datetime) -> str:
+    """Build a human "as of" stamp in local time, e.g. 'June 3rd, 2026 @ ~6:40pm'.
+
+    The time is rounded to the nearest 5 minutes; the leading '~' signals that it
+    is approximate. *run_date* is converted to the local timezone of the machine
+    generating the briefing.
+    """
+    local = run_date.astimezone()
+    # Round to the nearest 5 minutes (carrying into the hour/day as needed).
+    remainder = timedelta(minutes=local.minute % 5, seconds=local.second, microseconds=local.microsecond)
+    local -= remainder
+    if remainder >= timedelta(minutes=2, seconds=30):
+        local += timedelta(minutes=5)
+
+    hour12 = local.hour % 12 or 12
+    ampm = "am" if local.hour < 12 else "pm"
+    return f"{local.strftime('%B')} {_ordinal(local.day)}, {local.year} @ ~{hour12}:{local.minute:02d}{ampm}"
 
 
 def _group_by_category(articles: list[Article], categories: list[str]) -> dict[str, list[Article]]:
@@ -41,6 +69,7 @@ def render_html(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     html = template.render(
         run_date=run_date.strftime("%Y-%m-%d %H:%M UTC"),
+        dateline=_format_dateline(run_date),
         lookback_days=lookback_days,
         categories=categories,
         articles_by_category=_group_by_category(articles, categories),
@@ -63,9 +92,11 @@ def render_markdown(
     if categories is None:
         categories = list(CATEGORIES)
     lines: list[str] = []
-    lines.append("# Operational Intelligence Briefing")
+    lines.append("# Newsroom (interesting links, security news)")
     lines.append("")
-    lines.append(f"*Generated: {run_date.strftime('%Y-%m-%d %H:%M UTC')} \u2014 Articles from the past {lookback_days} days*")
+    lines.append("Did anything notable happen this week? Something notable *always* happens\u2026")
+    lines.append("")
+    lines.append(f"*(As of {_format_dateline(run_date)}.)*")
 
     for cat, cat_articles in _group_by_category(articles, categories).items():
         if not cat_articles:
@@ -96,8 +127,9 @@ def render_text(
         categories = list(CATEGORIES)
     width = 72
     lines: list[str] = []
-    lines.append("OPERATIONAL INTELLIGENCE BRIEFING")
-    lines.append(f"Generated: {run_date.strftime('%Y-%m-%d %H:%M UTC')} \u2014 Articles from the past {lookback_days} days")
+    lines.append("NEWSROOM (INTERESTING LINKS, SECURITY NEWS)")
+    lines.append("Did anything notable happen this week? Something notable always happens\u2026")
+    lines.append(f"(As of {_format_dateline(run_date)}.)")
 
     for cat, cat_articles in _group_by_category(articles, categories).items():
         if not cat_articles:

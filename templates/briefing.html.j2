@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>OpIntel Briefing &mdash; {{ run_date }}</title>
+  <title>Newsroom &mdash; {{ run_date }}</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -22,12 +22,13 @@
     }
     ul { margin: 0.5em 0; padding-left: 1.5em; }
     li { margin-bottom: 4px; }
+    li.entry { margin-bottom: 1em; }
     .no-articles { color: #666; font-style: italic; }
   </style>
 </head>
 <body>
-  <h1>Operational Intelligence Briefing</h1>
-  <p class="meta">Generated: {{ run_date }} &mdash; Articles from the past {{ lookback_days }} days</p>
+  <h1>Newsroom (interesting links, security news)</h1>
+  <p class="meta">Did anything notable happen this week? Something notable <em>always</em> happens&hellip; (As of {{ dateline }}.)</p>
 
 {% if articles_by_category %}
 {% for category in categories %}
@@ -35,17 +36,16 @@
   <h2>{{ category }}</h2>
   <ul>
 {% for article in articles_by_category[category] %}
-    <li><strong>{{ article.title }}</strong>
+    <li class="entry"><strong>{{ article.title }}</strong>
       <ul>
 {% for url in article.all_urls %}
         <li>{{ url }}</li>
 {% endfor %}
 {% for bullet in article.summary_bullets %}
-        <li>{{ bullet }}</li>
+        <li>{{ bullet }}{% if loop.last %}<br>&nbsp;{% endif %}</li>
 {% endfor %}
       </ul>
     </li>
-{% if not loop.last %}<br>{% endif %}
 {% endfor %}
   </ul>
 {% endif %}
