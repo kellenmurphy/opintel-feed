@@ -5,6 +5,7 @@
 cache/
 output/*.html
 output/*.md
+output/*.txt
 !output/example_briefing.html
 !output/example_briefing.md
 config/previous_includes.json
