@@ -27,9 +27,21 @@ jobs:
       - name: Regenerate lockfile
         run: pip-compile requirements.in --generate-hashes --strip-extras --output-file requirements.txt
 
-      - name: Commit if changed
+      - name: Commit if changed (signed via GitHub API)
+        env:
+          GH_TOKEN: ${{ secrets.PAT }}
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add requirements.txt
-          git diff --cached --quiet || git commit -m "chore: regenerate requirements.txt lockfile" && git push
+          if git diff --quiet -- requirements.txt; then
+            echo "No changes to requirements.txt"
+            exit 0
+          fi
+          HEAD_OID=$(git rev-parse HEAD)
+          CONTENT=$(base64 -w0 requirements.txt)
+          gh api graphql \
+            -f query='mutation($repo:String!,$branch:String!,$oid:GitObjectID!,$path:String!,$contents:Base64String!,$msg:String!){createCommitOnBranch(input:{branch:{repositoryNameWithOwner:$repo,branchName:$branch},expectedHeadOid:$oid,message:{headline:$msg},fileChanges:{additions:[{path:$path,contents:$contents}]}}){commit{oid}}}' \
+            -f repo="${{ github.repository }}" \
+            -f branch="${{ github.ref_name }}" \
+            -f oid="$HEAD_OID" \
+            -f path="requirements.txt" \
+            -f contents="$CONTENT" \
+            -f msg="chore: regenerate requirements.txt lockfile"
