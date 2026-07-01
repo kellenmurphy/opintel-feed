@@ -10,7 +10,7 @@ from .cache import CacheManager
 from .config import AppConfig
 from .models import Article, TokenUsage
 
-_SONNET_MODEL = "claude-sonnet-4-6"
+_SONNET_MODEL = "claude-sonnet-5"
 _BATCH_SIZE = 20
 
 def _build_system_prompt(categories: list[str]) -> str:
@@ -150,7 +150,8 @@ def _call_sonnet(
         try:
             response = client.messages.create(
                 model=_SONNET_MODEL,
-                max_tokens=4096,
+                max_tokens=8192,
+                thinking={"type": "adaptive"},
                 system=[
                     {
                         "type": "text",
@@ -160,7 +161,9 @@ def _call_sonnet(
                 ],
                 messages=[{"role": "user", "content": user_prompt}],
             )
-            text = response.content[0].text if response.content else ""
+            text = next(
+                (b.text for b in response.content if b.type == "text"), ""
+            )
             usage = response.usage
             token_usage = TokenUsage(
                 model=_SONNET_MODEL,

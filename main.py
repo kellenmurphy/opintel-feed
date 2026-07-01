@@ -14,6 +14,24 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+# ---------------------------------------------------------------------------
+# Model pricing — USD per token. Single source of truth for both the dry-run
+# estimator and the post-run token report.
+# Source: https://platform.claude.com/docs/en/pricing  (verified 2026-07-01)
+#   Haiku 4.5 : $1.00 in / $5.00 out / $0.10 cache-read / $1.25 cache-write per MTok
+#   Sonnet 5  : $3.00 in / $15.00 out / $0.30 cache-read / $3.75 cache-write per MTok
+#               (standard rates; Sonnet 5 intro pricing of $2/$10 through 2026-08-31
+#               means real cost is lower, so these bias the estimate upward.)
+# ---------------------------------------------------------------------------
+_PRICING = {
+    tier: {k: v / 1_000_000 for k, v in rates.items()}
+    for tier, rates in {
+        "haiku": {"in": 1.00, "out": 5.00, "cache_read": 0.10, "cache_write": 1.25},
+        "sonnet": {"in": 3.00, "out": 15.00, "cache_read": 0.30, "cache_write": 3.75},
+    }.items()
+}
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="opintel-feed",
@@ -117,38 +135,37 @@ def _estimate_dry_run_cost(n_validate: int, n_summarize: int) -> None:
 
     SONNET_SYS_TOKENS = 400   # system prompt (cached after batch 1)
     SONNET_IN_PER     = 420   # title + URL + 1500-char text per article
-    SONNET_OUT_PER    = 120   # ~2 bullets + category per article
+    SONNET_OUT_PER    = 260   # ~2 bullets + category + adaptive-thinking tokens
     SONNET_BATCH      = 20
 
-    # Pricing (per token)
-    HAIKU_IN   = 0.80  / 1_000_000
-    HAIKU_OUT  = 4.00  / 1_000_000
-    HAIKU_CR   = 0.08  / 1_000_000
-    HAIKU_CW   = 1.00  / 1_000_000
-    SONNET_IN  = 3.00  / 1_000_000
-    SONNET_OUT = 15.00 / 1_000_000
-    SONNET_CR  = 0.30  / 1_000_000
-    SONNET_CW  = 3.75  / 1_000_000
+    # Bias the estimate upward: prefer a slight overestimate to underestimating.
+    SAFETY_MARGIN = 1.15
+
+    haiku = _PRICING["haiku"]
+    sonnet = _PRICING["sonnet"]
 
     h_batches = math.ceil(n_validate  / HAIKU_BATCH)  if n_validate  else 0
     s_batches = math.ceil(n_summarize / SONNET_BATCH) if n_summarize else 0
 
     haiku_cost = (
-        HAIKU_IN_PER  * n_validate  * HAIKU_IN
-      + HAIKU_OUT_PER * n_validate  * HAIKU_OUT
-      + HAIKU_SYS_TOKENS            * HAIKU_CW                          # cache write (first batch)
-      + HAIKU_SYS_TOKENS            * HAIKU_CR * max(0, h_batches - 1)  # cache reads (subsequent)
+        HAIKU_IN_PER  * n_validate  * haiku["in"]
+      + HAIKU_OUT_PER * n_validate  * haiku["out"]
+      + HAIKU_SYS_TOKENS            * haiku["cache_write"]                          # cache write (first batch)
+      + HAIKU_SYS_TOKENS            * haiku["cache_read"] * max(0, h_batches - 1)   # cache reads (subsequent)
     )
     sonnet_cost = (
-        SONNET_IN_PER  * n_summarize * SONNET_IN
-      + SONNET_OUT_PER * n_summarize * SONNET_OUT
-      + SONNET_SYS_TOKENS            * SONNET_CW
-      + SONNET_SYS_TOKENS            * SONNET_CR * max(0, s_batches - 1)
+        SONNET_IN_PER  * n_summarize * sonnet["in"]
+      + SONNET_OUT_PER * n_summarize * sonnet["out"]
+      + SONNET_SYS_TOKENS            * sonnet["cache_write"]
+      + SONNET_SYS_TOKENS            * sonnet["cache_read"] * max(0, s_batches - 1)
     )
+    haiku_cost *= SAFETY_MARGIN
+    sonnet_cost *= SAFETY_MARGIN
     total = haiku_cost + sonnet_cost
 
     print(f"\n{'─' * 58}")
     print(f"  Estimated API cost  (worst case: all candidates pass)")
+    print(f"  includes {round((SAFETY_MARGIN - 1) * 100)}% safety margin")
     print(f"{'─' * 58}")
     print(
         f"  Haiku   {n_validate:>3} articles × {h_batches} batch{'es' if h_batches != 1 else ' '}    ~${haiku_cost:.4f}"
@@ -229,30 +246,14 @@ def _print_token_report(usages: list) -> None:
     if not usages:
         return
 
-    HAIKU_IN = 0.80 / 1_000_000
-    HAIKU_OUT = 4.00 / 1_000_000
-    HAIKU_CACHE_READ = 0.08 / 1_000_000
-    HAIKU_CACHE_WRITE = 1.00 / 1_000_000
-    SONNET_IN = 3.00 / 1_000_000
-    SONNET_OUT = 15.00 / 1_000_000
-    SONNET_CACHE_READ = 0.30 / 1_000_000
-    SONNET_CACHE_WRITE = 3.75 / 1_000_000
-
     def cost(u) -> float:
-        if "haiku" in u.model.lower():
-            return (
-                u.input_tokens * HAIKU_IN
-                + u.output_tokens * HAIKU_OUT
-                + u.cache_read_tokens * HAIKU_CACHE_READ
-                + u.cache_write_tokens * HAIKU_CACHE_WRITE
-            )
-        else:
-            return (
-                u.input_tokens * SONNET_IN
-                + u.output_tokens * SONNET_OUT
-                + u.cache_read_tokens * SONNET_CACHE_READ
-                + u.cache_write_tokens * SONNET_CACHE_WRITE
-            )
+        rates = _PRICING["haiku"] if "haiku" in u.model.lower() else _PRICING["sonnet"]
+        return (
+            u.input_tokens * rates["in"]
+            + u.output_tokens * rates["out"]
+            + u.cache_read_tokens * rates["cache_read"]
+            + u.cache_write_tokens * rates["cache_write"]
+        )
 
     print("\n" + "=" * 72)
     print(f"{'Model':<35} {'Input':>7} {'Output':>7} {'CacheRd':>8} {'CacheWr':>8}")
